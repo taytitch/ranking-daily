@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Daily Score Game</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+  <style>
+    body { font-family: sans-serif; max-width: 500px; margin: auto; padding: 20px; }
+    input, button { padding: 8px; margin: 5px 0; width: 100%; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+  </style>
+</head>
+<body>
+  <h2>Daily Score</h2>
+
+  <div id="nameSection">
+    <input id="nameInput" placeholder="กรอกชื่อเล่นของคุณ" />
+    <button onclick="saveName()">เริ่มเล่น</button>
+  </div>
+
+  <div id="gameSection" style="display:none">
+    <p>ยินดีต้อนรับ <b id="playerName"></b></p>
+    <input type="number" id="scoreInput" placeholder="กรอกเลขวันนี้ (1-6)" min="1" max="6" />
+    <button onclick="submitScore()">ส่งหมายเลขวันนี้</button>
+    <p id="statusMsg"></p>
+    <h3>อันดับคะแนน</h3>
+    <table>
+      <thead><tr><th>ชื่อ</th><th>คะแนนรวม</th><th>จำนวนครั้ง</th></tr></thead>
+      <tbody id="ranking"></tbody>
+    </table>
+  </div>
+
+  <script>
+    // ใส่ config Firebase ของคุณตรงนี้
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT.firebaseapp.com",
+      databaseURL: "https://YOUR_PROJECT.firebaseio.com",
+      projectId: "YOUR_PROJECT",
+      storageBucket: "YOUR_PROJECT.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let username = localStorage.getItem("dailyScoreName");
+    const today = new Date().toISOString().split('T')[0];
+
+    if (username) showGame();
+
+    function saveName() {
+      const name = document.getElementById("nameInput").value.trim();
+      if (name) {
+        localStorage.setItem("dailyScoreName", name);
+        username = name;
+        showGame();
+      }
+    }
+
+    function showGame() {
+      document.getElementById("nameSection").style.display = "none";
+      document.getElementById("gameSection").style.display = "block";
+      document.getElementById("playerName").textContent = username;
+      loadScores();
+    }
+
+    function submitScore() {
+      const val = parseInt(document.getElementById("scoreInput").value);
+      if (!val || val < 1 || val > 6) return alert("กรุณากรอกเลข 1–6");
+
+      const userRef = db.ref(`scores/${username}`);
+      userRef.once("value", snap => {
+        const data = snap.val() || {};
+        if (data[today]) {
+          document.getElementById("statusMsg").innerText = "คุณส่งแล้ววันนี้";
+        } else if (Object.keys(data).length >= 30) {
+          document.getElementById("statusMsg").innerText = "คุณครบ 30 แล้ว รอรอบใหม่";
+        } else {
+          userRef.child(today).set(val, () => {
+            document.getElementById("statusMsg").innerText = "ส่งเรียบร้อยแล้ว";
+            loadScores();
+          });
+        }
+      });
+    }
+
+    function loadScores() {
+      db.ref("scores").once("value", snapshot => {
+        const allData = snapshot.val() || {};
+        let results = [];
+        let fullPlayers = 0;
+
+        for (const name in allData) {
+          const nums = Object.values(allData[name]);
+          const total = nums.reduce((a, b) => a + b, 0);
+          const count = nums.length;
+          results.push({ name, total, count });
+          if (count >= 30) fullPlayers++;
+        }
+
+        results.sort((a, b) => b.total - a.total);
+        document.getElementById("ranking").innerHTML = results.map(r =>
+          `<tr><td>${r.name}</td><td>${r.total}</td><td>${r.count}/30</td></tr>`
+        ).join("");
+
+        // ถ้าทุกคนกรอกครบ 30 ตัวเลข รีเซ็ต
+        if (results.length > 0 && results.every(r => r.count >= 30)) {
+          setTimeout(() => {
+            if (confirm("ผู้เล่นทุกคนครบ 30 ครั้งแล้ว รีเซ็ตระบบใหม่?")) {
+              db.ref("scores").remove();
+              document.getElementById("ranking").innerHTML = "";
+              document.getElementById("statusMsg").innerText = "ระบบเริ่มรอบใหม่แล้ว";
+            }
+          }, 500);
+        }
+      });
+    }
+  </script>
+</body>
+</html>
